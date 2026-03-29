@@ -1,0 +1,13 @@
+[Unit]
+Description=LibreScoot Trip Service
+After=redis.service
+Requires=redis.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/trip-service
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
