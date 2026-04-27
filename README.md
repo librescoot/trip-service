@@ -55,7 +55,7 @@ SQLite WAL at `/data/trips.db`. Two tables:
 - `trips` - one row per ride (profile, start/end location, odometer, distance, duration, speeds)
 - `trip_points` - GPS trace points (timestamp, lat/lon, altitude, speed, course, odometer)
 
-Distance comes from odometer delta, not GPS path sum (more accurate on the scooter's actual wheel measurement).
+Distance comes from odometer delta rather than summing GPS hops — the wheel measurement is more accurate than chasing noisy GPS positions.
 
 ## Crash recovery
 
