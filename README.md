@@ -2,6 +2,8 @@
 
 Records every ride from unlock to lock, with adaptive GPS traces and per-profile attribution.
 
+Part of the [Librescoot](https://librescoot.org/) open-source platform.
+
 ```bash
 GOTOOLCHAIN=go1.25.7 make build-host
 ./bin/trip-service --redis localhost:6379 --db /tmp/trips.db
@@ -78,4 +80,11 @@ ssh deep-blue "systemctl stop librescoot-trip && cp /data/trip-service-test /usr
 
 ## License
 
-AGPL-3.0
+This project is dual-licensed. The source code is available under the
+[Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License][cc-by-nc-sa].
+The maintainers reserve the right to grant separate licenses for commercial distribution; please contact the maintainers to discuss commercial licensing.
+
+[![CC BY-NC-SA 4.0][cc-by-nc-sa-image]][cc-by-nc-sa]
+
+[cc-by-nc-sa]: http://creativecommons.org/licenses/by-nc-sa/4.0/
+[cc-by-nc-sa-image]: https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png
