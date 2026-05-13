@@ -1,5 +1,5 @@
 [Unit]
-Description=LibreScoot Trip Service
+Description=Librescoot Trip Service
 After=redis.service
 Requires=redis.service
 
