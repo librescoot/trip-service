@@ -1,4 +1,4 @@
-# trip-service
+# Librescoot Trip Service
 
 Records every ride from unlock to lock, with adaptive GPS traces and per-profile attribution.
 
@@ -9,7 +9,7 @@ GOTOOLCHAIN=go1.25.7 make build-host
 ./bin/trip-service --redis localhost:6379 --db /tmp/trips.db
 ```
 
-## What it does
+## Capabilities
 
 - Starts a trip when the vehicle enters `ready-to-drive`, ends it on lock
 - Records GPS points at adaptive intervals (more points in turns, fewer on straight roads)
@@ -32,7 +32,9 @@ Heading changes > 15 degrees or speed changes > 10 km/h trigger an immediate cap
 
 A typical 30-minute city ride produces 200-600 points, about 10-25 KB.
 
-## Data sources
+## Operation and interfaces
+
+### Data sources
 
 Reads directly from Redis, same hashes as other services. No dependency on radio-gaga.
 
@@ -71,12 +73,9 @@ GOTOOLCHAIN=go1.25.7 make build-host   # native
 GOTOOLCHAIN=go1.25.7 make test
 ```
 
-## Deploy
+## Packaging
 
-```bash
-scp bin/trip-service deep-blue:/data/trip-service-test
-ssh deep-blue "systemctl stop librescoot-trip && cp /data/trip-service-test /usr/bin/trip-service && systemctl start librescoot-trip"
-```
+The Yocto layer in [meta-librescoot](https://github.com/librescoot/meta-librescoot) installs `/usr/bin/trip-service` and the systemd unit `librescoot-trip.service`.
 
 ## License
 
@@ -88,3 +87,5 @@ The maintainers reserve the right to grant separate licenses for commercial dist
 
 [cc-by-nc-sa]: http://creativecommons.org/licenses/by-nc-sa/4.0/
 [cc-by-nc-sa-image]: https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png
+
+Made with ❤️ by the Librescoot community
