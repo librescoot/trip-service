@@ -2,6 +2,8 @@
 
 Records every ride from unlock to lock, with adaptive GPS traces and per-profile attribution.
 
+**This is a prototype.**
+
 Part of the [Librescoot](https://librescoot.org/) open-source platform.
 
 ```bash
