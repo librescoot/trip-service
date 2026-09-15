@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,13 +36,24 @@ func TestOpen_CreatesDatabase(t *testing.T) {
 func TestOpen_CreatesTables(t *testing.T) {
 	store := openTestDB(t)
 
-	tables := []string{"trips", "trip_points"}
+	tables := []string{"trips", "trip_points", "trip_counter", "trip_counter_commands"}
 	for _, table := range tables {
 		var name string
 		err := store.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
 			t.Errorf("table %q not found: %v", table, err)
 		}
+	}
+}
+
+func TestOpen_UsesIncrementalVacuum(t *testing.T) {
+	store := openTestDB(t)
+	var mode int
+	if err := store.db.QueryRow("PRAGMA auto_vacuum").Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if mode != 2 {
+		t.Fatalf("auto_vacuum = %d, want incremental (2)", mode)
 	}
 }
 
@@ -55,6 +67,37 @@ func TestOpen_WALMode(t *testing.T) {
 	}
 	if mode != "wal" {
 		t.Errorf("journal_mode = %q, want %q", mode, "wal")
+	}
+}
+
+func TestOpen_UpgradesInitialCounterSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trips.db")
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = legacy.Exec(`CREATE TABLE trip_counter (
+		id INTEGER PRIMARY KEY, distance_m INTEGER NOT NULL DEFAULT 0, duration_s INTEGER NOT NULL DEFAULT 0,
+		reset_policy TEXT NOT NULL DEFAULT 'ride', reset_at INTEGER NOT NULL DEFAULT 0,
+		reset_reason TEXT NOT NULL DEFAULT 'initial', generation INTEGER NOT NULL DEFAULT 0,
+		updated_at INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 0,
+		ready_started_at INTEGER NOT NULL DEFAULT 0, last_odometer INTEGER, session_open INTEGER NOT NULL DEFAULT 0,
+		battery_0_serial TEXT NOT NULL DEFAULT '', battery_1_serial TEXT NOT NULL DEFAULT ''
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Close()
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, column := range []string{"daily_anchor", "dual_battery"} {
+		var name string
+		if err := store.db.QueryRow("SELECT name FROM pragma_table_info('trip_counter') WHERE name=?", column).Scan(&name); err != nil {
+			t.Errorf("missing migrated column %s: %v", column, err)
+		}
 	}
 }
 

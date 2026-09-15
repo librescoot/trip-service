@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -24,12 +25,15 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
+	// A single connection keeps foreign-key enforcement and VACUUM serialized.
+	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 
 	pragmas := []string{
+		"PRAGMA auto_vacuum=incremental",
 		"PRAGMA journal_mode=wal",
 		"PRAGMA busy_timeout=5000",
 		"PRAGMA foreign_keys=ON",
@@ -62,6 +66,7 @@ func (s *Store) migrate() error {
 			status TEXT NOT NULL DEFAULT 'recording',
 			started_at INTEGER,
 			ended_at INTEGER,
+			active_started_at INTEGER NOT NULL DEFAULT 0,
 			start_lat REAL,
 			start_lon REAL,
 			end_lat REAL,
@@ -91,6 +96,47 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_trips_profile ON trips(profile_id);
 		CREATE INDEX IF NOT EXISTS idx_trips_started ON trips(started_at);
 		CREATE INDEX IF NOT EXISTS idx_points_trip ON trip_points(trip_id);
+
+		CREATE TABLE IF NOT EXISTS trip_counter (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			distance_m INTEGER NOT NULL DEFAULT 0,
+			duration_s INTEGER NOT NULL DEFAULT 0,
+			reset_policy TEXT NOT NULL DEFAULT 'ride',
+			reset_at INTEGER NOT NULL DEFAULT 0,
+			reset_reason TEXT NOT NULL DEFAULT 'initial',
+			generation INTEGER NOT NULL DEFAULT 0,
+			updated_at INTEGER NOT NULL DEFAULT 0,
+			active INTEGER NOT NULL DEFAULT 0,
+			ready_started_at INTEGER NOT NULL DEFAULT 0,
+			last_odometer INTEGER,
+			session_open INTEGER NOT NULL DEFAULT 0,
+			battery_0_serial TEXT NOT NULL DEFAULT '',
+			battery_1_serial TEXT NOT NULL DEFAULT '',
+			daily_anchor TEXT NOT NULL DEFAULT '',
+			dual_battery INTEGER NOT NULL DEFAULT 0
+		);
+
+		CREATE TABLE IF NOT EXISTS trip_counter_commands (
+			id TEXT PRIMARY KEY,
+			op TEXT NOT NULL,
+			status TEXT NOT NULL,
+			error TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_trip_counter_commands_created ON trip_counter_commands(created_at);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	for table, columns := range map[string][]string{
+		"trip_counter": {"daily_anchor TEXT NOT NULL DEFAULT ''", "dual_battery INTEGER NOT NULL DEFAULT 0"},
+		"trips":        {"active_started_at INTEGER NOT NULL DEFAULT 0"},
+	} {
+		for _, column := range columns {
+			if _, err := s.db.Exec("ALTER TABLE " + table + " ADD COLUMN " + column); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+				return err
+			}
+		}
+	}
+	return nil
 }
