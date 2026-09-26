@@ -121,6 +121,16 @@ func (s *Store) AbandonTrip(id string) error {
 	return nil
 }
 
+// DeleteTrip removes a history row and its points (cascade) for rides that
+// failed the plausibility filter before they were ever completed.
+func (s *Store) DeleteTrip(id string) error {
+	_, err := s.db.Exec(`DELETE FROM trips WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete trip: %w", err)
+	}
+	return nil
+}
+
 const tripColumns = `id, profile_id, status, started_at, ended_at, active_started_at,
 	start_lat, start_lon, end_lat, end_lon, start_odometer, end_odometer,
 	distance_m, duration_s, avg_speed, max_speed, point_count, created_at`

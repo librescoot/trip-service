@@ -93,6 +93,71 @@ func TestRecorder_EndTrip_NotRecording(t *testing.T) {
 	}
 }
 
+func TestRecorder_DiscardsUnlockLockWithoutMovement(t *testing.T) {
+	rec, pub, store := setupTestRecorder(t)
+	if err := rec.StartTrip("p1", 52.52, 13.40, 10000); err != nil {
+		t.Fatal(err)
+	}
+	rec.AddPoint(52.521, 13.401, 0, 20, 90, 10020, time.Now().UnixMilli())
+	rec.FlushPoints()
+	tripID := rec.currentTrip.ID
+
+	if err := rec.EndTrip(52.521, 13.401, 10020); err != nil {
+		t.Fatalf("EndTrip error: %v", err)
+	}
+	if rec.IsRecording() {
+		t.Error("expected idle after discarding a short trip")
+	}
+	if pub.completedEvents != 0 {
+		t.Errorf("completion events = %d, want 0", pub.completedEvents)
+	}
+	if pub.tripStatus != "idle" {
+		t.Errorf("trip status = %q, want idle", pub.tripStatus)
+	}
+	if _, err := store.GetTrip(tripID); err == nil {
+		t.Error("short trip row was retained")
+	}
+	if points, err := store.PointCount(tripID); err != nil || points != 0 {
+		t.Errorf("points = %d, %v; want 0 after cascade delete", points, err)
+	}
+	if trips, err := store.ListTrips("", 10, 0); err != nil || len(trips) != 0 {
+		t.Errorf("history = %+v, %v; want empty", trips, err)
+	}
+}
+
+func TestRecorder_KeepsTripAtPlausibilityFloor(t *testing.T) {
+	rec, pub, store := setupTestRecorder(t)
+	if err := rec.StartTrip("p1", 0, 0, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if err := rec.EndTrip(0, 0, 1000+MinTripDistanceM); err != nil {
+		t.Fatalf("EndTrip error: %v", err)
+	}
+	if pub.completedEvents != 1 {
+		t.Fatalf("completion events = %d, want 1", pub.completedEvents)
+	}
+	if trips, err := store.ListTrips("", 10, 0); err != nil || len(trips) != 1 {
+		t.Fatalf("history = %+v, %v; want one trip", trips, err)
+	}
+}
+
+func TestRecorder_DiscardsBackwardOdometer(t *testing.T) {
+	rec, pub, store := setupTestRecorder(t)
+	if err := rec.StartTrip("p1", 0, 0, 10000); err != nil {
+		t.Fatal(err)
+	}
+	tripID := rec.currentTrip.ID
+	if err := rec.EndTrip(0, 0, 9000); err != nil {
+		t.Fatalf("EndTrip error: %v", err)
+	}
+	if pub.completedEvents != 0 {
+		t.Errorf("completion events = %d, want 0", pub.completedEvents)
+	}
+	if _, err := store.GetTrip(tripID); err == nil {
+		t.Error("backward-odometer trip row was retained")
+	}
+}
+
 func TestRecorder_AddPoint(t *testing.T) {
 	rec, _, store := setupTestRecorder(t)
 	rec.StartTrip("p1", 52.520, 13.400, 10000)
@@ -151,7 +216,7 @@ func TestRecorder_PauseResumeKeepsOneRideAndSeparatesPoints(t *testing.T) {
 	}
 	rec.AddPoint(1, 1, 0, 10, 0, 130, 3) // accepted after pause; no adaptive bridge
 	now = now.Add(20 * time.Second)
-	if err := rec.EndTrip(1, 1, 130); err != nil {
+	if err := rec.EndTrip(1, 1, 400); err != nil {
 		t.Fatal(err)
 	}
 	trip, err := store.GetTrip(id)
@@ -189,7 +254,7 @@ func TestRecorder_CrashRecoveryDoesNotCountReadyOutage(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = now.Add(10 * time.Second)
-	if err := recovered.EndTrip(0, 0, 0); err != nil {
+	if err := recovered.EndTrip(0, 0, 5000); err != nil {
 		t.Fatal(err)
 	}
 	trips, err := store.ListTrips("", 1, 0)

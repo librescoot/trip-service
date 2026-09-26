@@ -15,20 +15,34 @@ type Publisher interface {
 	ClearTrip()
 }
 
+// MinTripDistanceM is the shortest odometer delta that counts as a ride.
+// Unlock/lock sequences that move the scooter less than this are storage and
+// statistics noise: no history row and no completion event.
+const MinTripDistanceM int64 = 100
+
 type Recorder struct {
-	store       *db.Store
-	pub         Publisher
-	currentTrip *db.Trip
-	lastPoint   *RecordedPoint
-	pointBuffer []db.TripPoint
-	maxSpeed    float64
-	onFinished  func()
-	now         func() time.Time
-	mu          sync.Mutex
+	store        *db.Store
+	pub          Publisher
+	currentTrip  *db.Trip
+	lastPoint    *RecordedPoint
+	pointBuffer  []db.TripPoint
+	maxSpeed     float64
+	onFinished   func()
+	now          func() time.Time
+	minDistanceM int64
+	mu           sync.Mutex
 }
 
 func New(store *db.Store, pub Publisher) *Recorder {
-	return &Recorder{store: store, pub: pub, now: time.Now}
+	return &Recorder{store: store, pub: pub, now: time.Now, minDistanceM: MinTripDistanceM}
+}
+
+// SetMinTripDistance overrides the plausibility floor; tests use it to keep
+// their odometer fixtures small.
+func (r *Recorder) SetMinTripDistance(distanceM int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.minDistanceM = distanceM
 }
 func (r *Recorder) SetClock(now func() time.Time) { r.mu.Lock(); defer r.mu.Unlock(); r.now = now }
 func (r *Recorder) SetOnFinished(fn func())       { r.mu.Lock(); defer r.mu.Unlock(); r.onFinished = fn }
@@ -108,6 +122,26 @@ func (r *Recorder) EndTrip(lat, lon float64, odometer int64) error {
 	r.mu.Lock()
 	if r.currentTrip == nil {
 		r.mu.Unlock()
+		return nil
+	}
+	distance := odometer - r.currentTrip.StartOdometer
+	if distance < r.minDistanceM {
+		// Not a ride. Drop the row and any points already written for it, then
+		// publish no completion event so profiles and history stay untouched.
+		tripID := r.currentTrip.ID
+		r.pointBuffer = nil
+		if err := r.store.DeleteTrip(tripID); err != nil {
+			r.mu.Unlock()
+			return err
+		}
+		slog.Info("discarding short trip", "id", tripID, "distance_m", distance)
+		r.pub.ClearTrip()
+		r.currentTrip, r.lastPoint = nil, nil
+		onFinished := r.onFinished
+		r.mu.Unlock()
+		if onFinished != nil {
+			onFinished()
+		}
 		return nil
 	}
 	if len(r.pointBuffer) > 0 {

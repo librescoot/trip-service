@@ -1,6 +1,6 @@
 # Librescoot Trip Service
 
-Records every ride from unlock to lock, with adaptive GPS traces and per-profile attribution.
+Records rides from unlock to lock, with adaptive GPS traces and per-profile attribution. Unlock/lock sequences that do not move the scooter are discarded.
 
 **This is a prototype.**
 
@@ -33,6 +33,12 @@ Recording frequency adjusts to how you're riding:
 Heading changes > 15 degrees or speed changes > 10 km/h trigger an immediate capture regardless of interval. Points closer than 5m are filtered out (GPS jitter).
 
 A typical 30-minute city ride produces 200-600 points, about 10-25 KB.
+
+## Plausibility filter
+
+An unlock/lock sequence only becomes history when the ECU odometer advances by at least 100 m from the ride's baseline. Shorter sequences — unlocking to fetch something from the seatbox, pushing the scooter a few metres — are deleted instead of completed: no history row, no GPS points and no `trip:completed` event, so they never reach trip history or profile statistics. A backward odometer delta is treated the same way. The floor is `recorder.MinTripDistanceM`.
+
+The counter is not affected: it tracks the ECU odometer independently of trip history.
 
 ## Operation and interfaces
 

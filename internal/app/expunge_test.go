@@ -113,6 +113,10 @@ func TestCanonicalRideLifecycleKeepsOneOpenHistoryEntry(t *testing.T) {
 	if err != nil || open == nil {
 		t.Fatalf("open ride = %+v, %v", open, err)
 	}
+	// Move past the plausibility floor so the lifecycle closes a real ride.
+	if err := a.handleOdometer(500); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.handleVehicleState("stand-by"); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +273,7 @@ func TestExpungeStartupPeriodicAndCompletionSeams(t *testing.T) {
 	if err := a.recorder.StartTrip("p", 0, 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.recorder.EndTrip(0, 0, 0); err != nil {
+	if err := a.recorder.EndTrip(0, 0, 1000); err != nil {
 		t.Fatal(err)
 	}
 	if trip, err := a.store.GetRecordingTrip(); err != nil || trip != nil {
