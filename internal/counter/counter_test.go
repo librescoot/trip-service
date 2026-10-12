@@ -182,11 +182,100 @@ func TestInvalidOdometerAndTime(t *testing.T) {
 	c, _, now := testCounter(t, time.Unix(0, 0))
 	c.VehicleState("ready-to-drive")
 	c.Odometer(1100)
-	c.Odometer(900)
+	c.Odometer(-1)
 	*now = now.Add(time.Hour)
 	c.VehicleState("parked")
 	if got := c.Snapshot(); got.DistanceM != 100 || got.DurationS != 0 {
 		t.Fatalf("invalid values = %+v", got)
+	}
+}
+
+func TestOdometerRollbackRebasesWithoutLosingDistance(t *testing.T) {
+	c, store, now := testCounter(t, time.Date(2025, 1, 1, 1, 0, 0, 0, time.Local))
+	if err := c.VehicleState("ready-to-drive"); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		odometer int64
+		distance int64
+	}{
+		{1100, 100},
+		{0, 100},
+		{100, 200},
+		{100, 200},
+		{-1, 200},
+		{200, 300},
+	} {
+		if err := c.Odometer(step.odometer); err != nil {
+			t.Fatal(err)
+		}
+		if got := c.Snapshot(); got.DistanceM != step.distance {
+			t.Fatalf("odometer %d: distance = %d, want %d", step.odometer, got.DistanceM, step.distance)
+		}
+	}
+	*now = now.Add(30 * time.Second)
+	if got := c.Snapshot(); got.AverageSpeedKmh != 36 {
+		t.Fatalf("average speed = %d, want 36", got.AverageSpeedKmh)
+	}
+	persisted, err := store.Counter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.LastOdometer == nil || *persisted.LastOdometer != 200 {
+		t.Fatalf("persisted baseline = %v, want 200", persisted.LastOdometer)
+	}
+}
+
+func TestInactiveOdometerRollbackRebasesAcrossRestart(t *testing.T) {
+	c, store, now := testCounter(t, time.Date(2025, 1, 1, 1, 0, 0, 0, time.Local))
+	if err := c.Odometer(0); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Snapshot(); got.DistanceM != 0 {
+		t.Fatalf("inactive rollback = %+v", got)
+	}
+	c2 := New(store)
+	c2.SetClock(func() time.Time { return *now })
+	if err := c2.Hydrate(0, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := c2.VehicleState("ready-to-drive"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c2.Odometer(100); err != nil {
+		t.Fatal(err)
+	}
+	if got := c2.Snapshot(); got.DistanceM != 100 {
+		t.Fatalf("distance after restart = %+v", got)
+	}
+}
+
+func TestTerminalOdometerRollbackRebases(t *testing.T) {
+	c, store, _ := testCounter(t, time.Date(2025, 1, 1, 1, 0, 0, 0, time.Local))
+	if err := c.VehicleState("ready-to-drive"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Odometer(1100); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.VehicleStateWithOdometer("parked", 0, true); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := store.Counter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.LastOdometer == nil || *persisted.LastOdometer != 0 || persisted.DistanceM != 100 {
+		t.Fatalf("terminal rollback = %+v", persisted)
+	}
+	if err := c.VehicleState("ready-to-drive"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Odometer(100); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Snapshot(); got.DistanceM != 200 {
+		t.Fatalf("distance after terminal rollback = %+v", got)
 	}
 }
 

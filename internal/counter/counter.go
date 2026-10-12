@@ -117,20 +117,22 @@ func (c *Counter) Odometer(odometer int64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ensureLocked()
-	if c.state.LastOdometer != nil && odometer < *c.state.LastOdometer {
-		return nil
-	}
 	now := c.now().Unix()
-	if c.state.Active && c.state.LastOdometer != nil {
-		c.state.DistanceM += odometer - *c.state.LastOdometer
-	}
+	c.observeOdometerLocked(odometer)
 	if c.state.Active && c.state.ReadyStartedAt == 0 && trustworthyTime(now) {
 		c.state.ReadyStartedAt = now
 	}
-	v := odometer
-	c.state.LastOdometer = &v
 	c.state.UpdatedAt = now
 	return c.store.SaveCounter(c.state)
+}
+
+func (c *Counter) observeOdometerLocked(odometer int64) {
+	if c.state.Active && c.state.LastOdometer != nil && odometer >= *c.state.LastOdometer {
+		c.state.DistanceM += odometer - *c.state.LastOdometer
+	}
+	// A rollback establishes a new baseline without subtracting accrued distance.
+	v := odometer
+	c.state.LastOdometer = &v
 }
 
 // RecoverVehicleState discards the unavailable interval since the last durable
@@ -175,12 +177,8 @@ func (c *Counter) VehicleStateWithOdometer(state string, odometer int64, odomete
 			c.startReadyLocked(now)
 		}
 	} else {
-		if odometerValid && odometer >= 0 && (c.state.LastOdometer == nil || odometer >= *c.state.LastOdometer) {
-			if c.state.Active && c.state.LastOdometer != nil {
-				c.state.DistanceM += odometer - *c.state.LastOdometer
-			}
-			v := odometer
-			c.state.LastOdometer = &v
+		if odometerValid && odometer >= 0 {
+			c.observeOdometerLocked(odometer)
 		}
 		c.checkpointDurationLocked(now)
 		if !pausedRideState(state) {
