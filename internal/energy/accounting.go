@@ -45,15 +45,13 @@ type Sample struct {
 
 type baseline struct {
 	Sample
-	phase string
-	mixed bool
 }
 
 type Accountant struct {
-	Totals     Totals
-	started    time.Time
-	slots      [2]*baseline
-	phaseToken string
+	Totals  Totals
+	started time.Time
+	slots   [2]*baseline
+	phases  phaseTimeline
 }
 
 func New(t Totals, now time.Time) *Accountant {
@@ -109,20 +107,15 @@ func (a *Accountant) Break() {
 // Observe consumes one atomic Redis snapshot. Acquisition timestamps prevent
 // repeated cached reads and state-only publications from creating intervals.
 func (a *Accountant) Observe(now time.Time, vehicle map[string]string, packs [2]map[string]string) string {
+	if !a.phases.observed.IsZero() && now.Before(a.phases.observed) {
+		a.Break()
+		a.phases = phaseTimeline{}
+	}
+	a.phases.observe(now, a.started, vehicle)
 	if packs[0]["present"] == "true" && packs[1]["present"] == "true" && packs[0]["serial-number"] != "" && packs[0]["serial-number"] == packs[1]["serial-number"] {
 		a.Break()
 		return "waiting"
 	}
-	token := vehicle["state"] + ":" + vehicle["state:timestamp"]
-	if token != a.phaseToken {
-		for _, b := range a.slots {
-			if b != nil {
-				b.mixed = true
-			}
-		}
-		a.phaseToken = token
-	}
-	p := phase(vehicle["state"])
 	present, usable := 0, 0
 	for i, fields := range packs {
 		if fields["present"] == "true" && fields["state"] != "idle" && fields["state"] != "asleep" {
@@ -136,12 +129,12 @@ func (a *Accountant) Observe(now time.Time, vehicle map[string]string, packs [2]
 		usable++
 		old := a.slots[i]
 		if old == nil {
-			a.slots[i] = &baseline{Sample: s, phase: p}
+			a.slots[i] = &baseline{Sample: s}
 			continue
 		}
 		if s.Serial != old.Serial || s.Full != old.Full {
 			a.breakSlot(i)
-			a.slots[i] = &baseline{Sample: s, phase: p}
+			a.slots[i] = &baseline{Sample: s}
 			continue
 		}
 		if s.At.Equal(old.At) {
@@ -154,14 +147,11 @@ func (a *Accountant) Observe(now time.Time, vehicle map[string]string, packs [2]
 		limit := 200000*dt.Hours() + 2
 		if dt <= 0 || dt > maxInterval || math.Abs(float64(delta)) > limit {
 			a.breakSlot(i)
-			a.slots[i] = &baseline{Sample: s, phase: p}
+			a.slots[i] = &baseline{Sample: s}
 			continue
 		}
 		mwh := float64(delta) * float64(old.Voltage+s.Voltage) / 2000
-		bucket := p
-		if old.mixed || old.phase != p {
-			bucket = "unassigned"
-		}
+		bucket := a.phases.largestShare(old.At, s.At)
 		switch bucket {
 		case "driving":
 			a.Totals.Driving += mwh
@@ -173,7 +163,7 @@ func (a *Accountant) Observe(now time.Time, vehicle map[string]string, packs [2]
 			a.Totals.Unassigned += mwh
 		}
 		a.Totals.Intervals++
-		a.slots[i] = &baseline{Sample: s, phase: p}
+		a.slots[i] = &baseline{Sample: s}
 	}
 	if usable == 0 {
 		return "waiting"

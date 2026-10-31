@@ -72,9 +72,13 @@ gross discharge or recuperation measurements.
 
 `net:mwh` is the sum of `driving:mwh`, `parked:mwh`, `standby:mwh` and
 `unassigned:mwh`. Driving means `ready-to-drive`, including stops within that
-state; parked includes hop-on and waiting-seatbox. Intervals spanning a state
-change are unassigned rather than attributed to one endpoint. This is a split
-by operating phase, not by electrical load: charging and auxiliary loads can
+state; parked includes hop-on and waiting-seatbox. Each pack interval is assigned
+in full to the phase with the largest accumulated time share, including repeated
+visits to that phase. Valid vehicle transition timestamps locate changes between
+observations; otherwise the observation time is used. Attribution uses acquisition
+endpoints, not the later Redis read time. Exact ties or a dominant unknown period
+remain unassigned. This is a split by operating phase, not by electrical load:
+charging and auxiliary loads can
 occur in any phase. It does not separately measure AUX/CBB charging or losses.
 
 Accounting consumes `sample:timestamp` and `sample:valid` from battery-service,

@@ -70,15 +70,16 @@ func TestPhaseChangesNeverDoubleCount(t *testing.T) {
 	a.Observe(epoch.Add(10*time.Second), vehicle("ready-to-drive"), [2]map[string]string{old, nil})
 	next := epoch.Add(40 * time.Second)
 	a.Observe(next, vehicle("ready-to-drive"), [2]map[string]string{pack(next, "A", 19900), nil})
-	closeTo(t, a.Totals.Unassigned, 5300)
-	closeTo(t, a.Totals.Driving, 0)
+	closeTo(t, a.Totals.Unassigned, 0)
+	closeTo(t, a.Totals.Driving, 5300)
 	// A state timestamp reveals an intervening transition even if both polls
 	// happen to see the same state.
 	v := vehicle("ready-to-drive")
 	v["state:timestamp"] = "changed"
 	next = next.Add(40 * time.Second)
 	a.Observe(next, v, [2]map[string]string{pack(next, "A", 19800), nil})
-	closeTo(t, a.Totals.Unassigned, 10600)
+	closeTo(t, a.Totals.Unassigned, 5300)
+	closeTo(t, a.Totals.Driving, 5300)
 }
 
 func TestInvalidDataAndStaleCacheStayUnknown(t *testing.T) {
