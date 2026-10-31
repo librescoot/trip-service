@@ -60,6 +60,47 @@ Reads directly from Redis, same hashes as other services. No dependency on radio
 | `trip` | Hash | `status` (recording/idle), `id`, `profile-id`, `distance-m`, `duration-s` |
 | `trip:completed` | Pub/Sub | Fired on trip end with trip ID, profile ID, distance, duration, max speed |
 
+## Battery energy accounting
+
+The `energy` Redis hash reports a signed **net energy estimate** from the two
+active traction packs. Each interval uses the change in BMS remaining capacity
+(mAh) multiplied by the mean of its endpoint voltages. It does not extrapolate
+an instantaneous current over the battery polling interval. Positive values
+mean net withdrawal; negative values mean net capacity gain. Capacity changes
+can also include BMS gauge corrections, so these are estimates, not separate
+gross discharge or recuperation measurements.
+
+`net:mwh` is the sum of `driving:mwh`, `parked:mwh`, `standby:mwh` and
+`unassigned:mwh`. Driving means `ready-to-drive`, including stops within that
+state; parked includes hop-on and waiting-seatbox. Intervals spanning a state
+change are unassigned rather than attributed to one endpoint. This is a split
+by operating phase, not by electrical load: charging and auxiliary loads can
+occur in any phase. It does not separately measure AUX/CBB charging or losses.
+
+Accounting consumes `sample:timestamp` and `sample:valid` from battery-service,
+plus presence, active state, serial, voltage and remaining/full capacity. These
+metadata describe NFC acquisition, not the BMS's internal measurement time.
+Repeated cached reads do not create energy. Read errors, invalid/stale samples,
+pack replacement, full-capacity recalibration, implausible jumps and long gaps
+break the baseline. Unobserved energy is not invented, including across service
+restarts, sleep gaps and removal/off-vehicle charging. Both slots carrying the
+same serial are rejected to prevent double counting.
+
+`source=bms-capacity-delta`, `since` (UTC), `known`, `status`, `updated-at` (Unix
+milliseconds), `intervals` and `gaps` describe the estimate's coverage. Status is
+`waiting`, `collecting`, `partial`, `unavailable` or `storage-error`. No interval
+means unknown, not a measured zero. Acquisitions older than 90 seconds and
+intervals longer than 120 seconds are rejected. Polling Redis once a second
+does not change battery activation or NFC polling.
+
+Totals are persisted with file and directory fsync plus atomic rename in
+`energy.json` beside the configured trip database. The file is authoritative;
+Redis is a presentation snapshot. A corrupt file is reported as unavailable,
+never silently replaced with zero totals. Baselines are deliberately not
+restored across process restarts. `energy` publishes `updated-at` after each
+atomic hash update. Existing ECU energy counters and instantaneous power are
+unchanged and have a separate measurement period.
+
 ## Storage
 
 SQLite WAL at `/data/trips.db`. Two tables:

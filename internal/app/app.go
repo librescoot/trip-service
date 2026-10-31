@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	ipc "github.com/librescoot/redis-ipc"
 	"github.com/librescoot/trip-service/internal/counter"
 	"github.com/librescoot/trip-service/internal/db"
+	"github.com/librescoot/trip-service/internal/energy"
 	"github.com/librescoot/trip-service/internal/recorder"
 	tripRedis "github.com/librescoot/trip-service/internal/redis"
 )
@@ -175,6 +177,20 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.pubs.PublishReady(); err != nil {
 		return fmt.Errorf("publish trip ready: %w", err)
 	}
+	energyCtx, cancelEnergy := context.WithCancel(ctx)
+	energyDone := make(chan struct{})
+	go func() {
+		defer close(energyDone)
+		if err := energy.Run(energyCtx, client.Raw(), filepath.Join(filepath.Dir(a.cfg.DBPath), "energy.json"), a.log); err != nil {
+			a.log.Error("energy accounting unavailable", "error", err)
+			reportCtx, cancel := context.WithTimeout(energyCtx, 2*time.Second)
+			defer cancel()
+			if err := client.Raw().HSet(reportCtx, "energy", "status", "unavailable", "known", "false").Err(); err != nil {
+				a.log.Warn("report unavailable energy accounting", "error", err)
+			}
+		}
+	}()
+	defer func() { cancelEnergy(); <-energyDone }()
 	a.log.Info("trip-service ready")
 	<-ctx.Done()
 	a.log.Info("shutting down")
