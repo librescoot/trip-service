@@ -80,6 +80,13 @@ func TestHistoryMigrationKeepsCompletedRowsAndNeverReusesSequence(t *testing.T) 
 func TestHistoryPointsAndUnits(t *testing.T) {
 	s := openTestDB(t)
 	trip := completedHistoryTrip(t, s, "a")
+	empty, err := s.HistoryPoints(trip.ID, 0, 1)
+	if err != nil || len(empty.Points) != 0 {
+		t.Fatalf("empty: %+v %v", empty, err)
+	}
+	if _, err := s.HistoryPoints("0123456789abcdef0123456789abcdef", 0, 1); !errors.Is(err, ErrHistoryNotFound) {
+		t.Fatalf("missing: %v", err)
+	}
 	if err := s.InsertPoints([]TripPoint{{TripID: trip.ID, Timestamp: 2, Latitude: 1, Longitude: 2}, {TripID: trip.ID, Timestamp: 1, Latitude: 3, Longitude: 4}}); err != nil {
 		t.Fatal(err)
 	}

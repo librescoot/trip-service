@@ -169,25 +169,43 @@ func (s *Store) HistoryPoints(id string, after int64, limit int) (HistoryPointsP
 	if after < 0 || limit < 1 || limit > 256 {
 		return HistoryPointsPage{}, errors.New("invalid request")
 	}
-	if _, err := s.HistoryTrip(id); err != nil {
-		return HistoryPointsPage{}, err
-	}
-	rows, err := s.db.Query(`SELECT id, timestamp, latitude, longitude, altitude, speed FROM trip_points WHERE trip_id=? AND id>? ORDER BY id LIMIT ?`, id, after, limit+1)
+	rows, err := s.db.Query(`SELECT p.id, p.timestamp, p.latitude, p.longitude, p.altitude, p.speed
+		FROM trips t LEFT JOIN trip_points p ON p.trip_id=t.id AND p.id>?
+		WHERE t.id=? AND t.status='completed' ORDER BY p.id LIMIT ?`, after, id, limit+1)
 	if err != nil {
 		return HistoryPointsPage{}, err
 	}
 	defer rows.Close()
 	page := HistoryPointsPage{Points: []HistoryPoint{}}
+	found := false
 	for rows.Next() {
-		var p HistoryPoint
-		if err := rows.Scan(&p.ID, &p.TimestampMs, &p.Latitude, &p.Longitude, &p.Altitude, &p.SpeedKmh); err != nil {
+		found = true
+		var pointID, timestamp sql.NullInt64
+		var latitude, longitude, altitude, speed sql.NullFloat64
+		if err := rows.Scan(&pointID, &timestamp, &latitude, &longitude, &altitude, &speed); err != nil {
 			return HistoryPointsPage{}, err
+		}
+		if !pointID.Valid {
+			break
 		}
 		if len(page.Points) == limit {
 			page.NextAfterID = page.Points[len(page.Points)-1].ID
 			break
 		}
+		p := HistoryPoint{ID: pointID.Int64, TimestampMs: timestamp.Int64, Latitude: latitude.Float64, Longitude: longitude.Float64}
+		if altitude.Valid {
+			p.Altitude = &altitude.Float64
+		}
+		if speed.Valid {
+			p.SpeedKmh = &speed.Float64
+		}
 		page.Points = append(page.Points, p)
 	}
-	return page, rows.Err()
+	if err := rows.Err(); err != nil {
+		return HistoryPointsPage{}, err
+	}
+	if !found {
+		return HistoryPointsPage{}, ErrHistoryNotFound
+	}
+	return page, nil
 }
