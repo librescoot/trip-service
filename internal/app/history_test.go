@@ -63,6 +63,9 @@ func TestHistoryRPCWithIsolatedRedis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := store.InsertPoints([]db.TripPoint{{TripID: trip.ID, Timestamp: 1001, Latitude: 52.5, Longitude: 13.4}, {TripID: trip.ID, Timestamp: 1002, Latitude: 52.6, Longitude: 13.5}}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.CompleteTripAt(trip.ID, 0, 0, 1200, 0, trip.StartedAt+100); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +87,15 @@ func TestHistoryRPCWithIsolatedRedis(t *testing.T) {
 		t.Fatalf("history RPC: %+v %v", page, err)
 	}
 	detail, err := ipc.CallMethod[historyTripRequest, db.HistoryTrip](client, historyChannel, "history.get", historyTripRequest{ID: trip.ID}, 3*time.Second)
-	if err != nil || detail.ID != trip.ID {
+	if err != nil || detail.ID != trip.ID || detail.PointCount != 2 {
 		t.Fatalf("history detail: %+v %v", detail, err)
+	}
+	points, err := ipc.CallMethod[historyPointsRequest, db.HistoryPointsPage](client, historyChannel, "history.points", historyPointsRequest{ID: trip.ID, Limit: 1}, 3*time.Second)
+	if err != nil || len(points.Points) != 1 || points.NextAfterID == 0 {
+		t.Fatalf("history points page: %+v %v", points, err)
+	}
+	next, err := ipc.CallMethod[historyPointsRequest, db.HistoryPointsPage](client, historyChannel, "history.points", historyPointsRequest{ID: trip.ID, Limit: 1, AfterID: points.NextAfterID}, 3*time.Second)
+	if err != nil || len(next.Points) != 1 || next.NextAfterID != 0 || next.Points[0].Latitude != 52.6 {
+		t.Fatalf("history points continuation: %+v %v", next, err)
 	}
 }
