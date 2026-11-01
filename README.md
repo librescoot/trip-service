@@ -44,14 +44,21 @@ The counter is not affected: it tracks the ECU odometer independently of trip hi
 
 ### Data sources
 
-Reads directly from Redis, same hashes as other services. No dependency on radio-gaga.
+Reads directly from Redis hashes and pub/sub. No dependency on radio-gaga.
 
 | Redis Hash | Fields | Purpose |
 |------------|--------|---------|
 | `vehicle` | `state` | Trip start/end detection |
 | `engine-ecu` | `speed`, `odometer` | Speed tracking, distance calculation |
-| `gps` | `latitude`, `longitude`, `altitude`, `course`, `speed` | GPS trace |
 | `profile` | `active.id` | Who's riding |
+
+GPS traces use complete live JSON snapshots on `gps:tpv`. The service accepts
+connected, active 2D or 3D fixes in `fix-established` state with valid coordinates
+and finite altitude, speed and course; speed is in km/h. It does not replay the
+`gps` hash at startup. Recorded point timestamps use local receipt time, not GPS
+wall-clock ordering, so equal or corrected timestamps do not suppress movement.
+The distance filter removes repeated positions; receipt cadence alone cannot
+detect stale coordinates that the producer republishes as a valid fix.
 
 ## What it publishes
 
