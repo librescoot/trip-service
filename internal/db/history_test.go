@@ -84,14 +84,19 @@ func TestHistoryPointsAndUnits(t *testing.T) {
 	if err != nil || len(empty.Points) != 0 {
 		t.Fatalf("empty: %+v %v", empty, err)
 	}
+	withoutPoints, err := s.HistoryTrip(trip.ID)
+	if err != nil || withoutPoints.MaxRecordedGPSSpeedKmh != nil {
+		t.Fatalf("unknown GPS speed: %+v %v", withoutPoints, err)
+	}
 	if _, err := s.HistoryPoints("0123456789abcdef0123456789abcdef", 0, 1); !errors.Is(err, ErrHistoryNotFound) {
 		t.Fatalf("missing: %v", err)
 	}
-	if err := s.InsertPoints([]TripPoint{{TripID: trip.ID, Timestamp: 2, Latitude: 1, Longitude: 2}, {TripID: trip.ID, Timestamp: 1, Latitude: 3, Longitude: 4}}); err != nil {
+	speed := 48.5
+	if err := s.InsertPoints([]TripPoint{{TripID: trip.ID, Timestamp: 2, Latitude: 1, Longitude: 2, Speed: &speed}, {TripID: trip.ID, Timestamp: 1, Latitude: 3, Longitude: 4}}); err != nil {
 		t.Fatal(err)
 	}
 	detail, err := s.HistoryTrip(trip.ID)
-	if err != nil || detail.PointCount != 2 || detail.AverageSpeedKmh == nil || *detail.AverageSpeedKmh != 36 {
+	if err != nil || detail.PointCount != 2 || detail.AverageSpeedKmh == nil || *detail.AverageSpeedKmh != 36 || detail.MaxRecordedGPSSpeedKmh == nil || *detail.MaxRecordedGPSSpeedKmh != 48.5 {
 		t.Fatalf("detail: %+v %v", detail, err)
 	}
 	page, err := s.HistoryPoints(trip.ID, 0, 1)

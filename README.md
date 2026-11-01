@@ -60,6 +60,26 @@ Reads directly from Redis, same hashes as other services. No dependency on radio
 | `trip` | Hash | `status` (recording/idle), `id`, `profile-id`, `distance-m`, `duration-s` |
 | `trip:completed` | Pub/Sub | Fired on trip end with trip ID, profile ID, distance, duration, max speed |
 
+## Reading trip history
+
+The read-only JSON RPC queue `trip:history:rpc` provides `history.list`,
+`history.get` and `history.points`. The `trip:history:ready` lease is `1`
+while the interface is running. Only completed trips are returned; the active
+trip and the independent trip counter retain their existing interfaces.
+
+`history.list` accepts `limit` (1-50, default 20), an optional `profile` and
+an opaque `cursor`. It returns newest completions first, with `next_cursor`
+when another page exists. The cursor fixes the first page's upper bound: newly
+completed rides appear on refresh, while retention can still remove old rides.
+`history.get` accepts `id`; `history.points` accepts `id`, `after_id` and
+`limit` (1-256, default 100) and returns points in acquisition order with
+`next_after_id` when more are available. A removed trip returns `trip not found`.
+
+Trip times are Unix seconds, GPS timestamps Unix milliseconds, distance metres,
+ready duration seconds and speed km/h. The maximum is the recorded GPS speed,
+not an ECU peak. The point count is queried from the actual stored points. GPS
+tracks can contain gaps; missing routes do not prevent reading ride summaries.
+
 ## Battery energy accounting
 
 The `energy` Redis hash reports a signed **net energy estimate** from the two

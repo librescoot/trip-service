@@ -65,11 +65,13 @@ func parseHistoryCursor(raw, profile string) (historyCursor, error) {
 }
 
 const historySelect = `t.id, COALESCE(t.profile_id,''), COALESCE(t.started_at,0), COALESCE(t.ended_at,0),
- t.distance_m, t.duration_s, t.avg_speed, t.max_speed, (SELECT COUNT(*) FROM trip_points p WHERE p.trip_id=t.id)`
+ t.distance_m, t.duration_s, t.avg_speed, (SELECT MAX(p.speed) FROM trip_points p WHERE p.trip_id=t.id),
+ (SELECT COUNT(*) FROM trip_points p WHERE p.trip_id=t.id)`
 
 func scanHistory(row interface{ Scan(...any) error }, extra ...any) (HistoryTrip, error) {
 	var trip HistoryTrip
-	var avg, max float64
+	var avg float64
+	var max sql.NullFloat64
 	args := []any{&trip.ID, &trip.ProfileID, &trip.StartedAtS, &trip.EndedAtS, &trip.DistanceM, &trip.ReadyDurationS, &avg, &max, &trip.PointCount}
 	args = append(args, extra...)
 	if err := row.Scan(args...); err != nil {
@@ -79,8 +81,8 @@ func scanHistory(row interface{ Scan(...any) error }, extra ...any) (HistoryTrip
 		value := avg * 3.6
 		trip.AverageSpeedKmh = &value
 	}
-	if trip.PointCount > 0 {
-		trip.MaxRecordedGPSSpeedKmh = &max
+	if max.Valid {
+		trip.MaxRecordedGPSSpeedKmh = &max.Float64
 	}
 	return trip, nil
 }
