@@ -138,5 +138,20 @@ func (s *Store) migrate() error {
 			}
 		}
 	}
-	return nil
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS trip_history_order (
+			seq INTEGER PRIMARY KEY AUTOINCREMENT,
+			trip_id TEXT NOT NULL UNIQUE REFERENCES trips(id) ON DELETE CASCADE
+		);
+		INSERT INTO trip_history_order (trip_id)
+		SELECT t.id FROM trips t
+		WHERE t.status = 'completed' AND NOT EXISTS (SELECT 1 FROM trip_history_order h WHERE h.trip_id = t.id)
+		ORDER BY t.ended_at, t.started_at, t.id;
+		CREATE TRIGGER IF NOT EXISTS trip_history_complete AFTER UPDATE OF status ON trips
+		WHEN NEW.status = 'completed' AND OLD.status != 'completed'
+		BEGIN
+			INSERT OR IGNORE INTO trip_history_order (trip_id) VALUES (NEW.id);
+		END;
+	`)
+	return err
 }

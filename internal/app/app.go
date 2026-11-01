@@ -148,6 +148,18 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("start watchers: %w", err)
 	}
 	a.commandQueue = ipc.HandleRequests(client, "scooter:trip", a.handleCommand)
+	historyClient, err := ipc.New(ipc.WithURL(a.cfg.RedisAddr), ipc.WithLogger(a.log))
+	if err != nil {
+		return fmt.Errorf("create history redis client: %w", err)
+	}
+	defer historyClient.Close()
+	historyServer := newHistoryServer(historyClient, store)
+	historyServer.Start()
+	defer historyServer.Stop()
+	defer historyClient.Del("trip:history:ready")
+	if err := historyClient.Set("trip:history:ready", "1", tripRedis.ReadyTTL); err != nil {
+		return fmt.Errorf("publish history readiness: %w", err)
+	}
 	a.flushTicker = time.NewTicker(30 * time.Second)
 	go func() {
 		for range a.flushTicker.C {
@@ -163,6 +175,9 @@ func (a *App) Run(ctx context.Context) error {
 			}
 			if err := a.pubs.PublishReady(); err != nil {
 				a.log.Error("refresh trip ready", "error", err)
+			}
+			if err := historyClient.Set("trip:history:ready", "1", tripRedis.ReadyTTL); err != nil {
+				a.log.Error("refresh history ready", "error", err)
 			}
 			a.counterOpMu.Unlock()
 			a.runExpunge()
