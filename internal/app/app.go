@@ -192,6 +192,11 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.pubs.PublishReady(); err != nil {
 		return fmt.Errorf("publish trip ready: %w", err)
 	}
+	counterUpdatesDone := make(chan struct{})
+	go func() {
+		defer close(counterUpdatesDone)
+		a.runCounterUpdates(ctx)
+	}()
 	energyCtx, cancelEnergy := context.WithCancel(ctx)
 	energyDone := make(chan struct{})
 	go func() {
@@ -209,6 +214,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.log.Info("trip-service ready")
 	<-ctx.Done()
 	a.log.Info("shutting down")
+	<-counterUpdatesDone
 	a.flushTicker.Stop()
 	a.commandQueue.Stop()
 	a.watchers.Stop()
@@ -298,6 +304,29 @@ func (a *App) handleVehicleState(state string) error {
 	}
 	return nil
 }
+
+// Live snapshots include elapsed driving time without increasing the durable
+// checkpoint frequency or waiting for an odometer notification.
+func (a *App) runCounterUpdates(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.counterOpMu.Lock()
+			snapshot := a.counter.Snapshot()
+			if snapshot.Status == "recording" {
+				if err := a.pubs.PublishCounter(snapshot); err != nil {
+					a.log.Error("publish live counter", "error", err)
+				}
+			}
+			a.counterOpMu.Unlock()
+		}
+	}
+}
+
 func (a *App) publishCounter() error {
 	if a.pubs == nil {
 		return nil

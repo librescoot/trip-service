@@ -40,6 +40,17 @@ An unlock/lock sequence only becomes history when the ECU odometer advances by a
 
 The counter is not affected: it tracks the ECU odometer independently of trip history. It counts positive odometer deltas while ready to drive. A lower reading establishes a new baseline without subtracting accumulated distance, so subsequent increases count even after a controller replacement or odometer reset.
 
+## Live trip counter
+
+While ready to drive, `trip:counter` publishes a complete snapshot every second,
+independently of odometer notifications. Elapsed driving time and average speed
+therefore update between ECU odometer changes. Distance still comes from the ECU
+odometer; parked time is excluded.
+
+Live publication does not write to SQLite. The periodic durable checkpoint
+remains every 30 seconds, with additional saves for state changes and other
+counter mutations. Publications are serialized with resets and state changes.
+
 ## Operation and interfaces
 
 ### Data sources
@@ -66,6 +77,7 @@ detect stale coordinates that the producer republishes as a valid fix.
 |-----|------|---------|
 | `trip` | Hash | `status` (recording/idle), `id`, `profile-id`, `distance-m`, `duration-s` |
 | `trip:completed` | Pub/Sub | Fired on trip end with trip ID, profile ID, distance, duration, max speed |
+| `trip:counter` | Hash + Pub/Sub | Persistent counter snapshot, including `distance-m`, `duration-s`, `average-speed-kmh` and `status` |
 
 ## Reading trip history
 
